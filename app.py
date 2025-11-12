@@ -143,11 +143,9 @@ if st.button("Give me a random remix idea"):
         st.success(
             f"🎧 **{song['title']}** — {song['artist']} ({song['genre']}) → Try remixing into **{song['Remix suggestion']}!**"
         )
-        st.markdown(
-            f"[🎵 YouTube Search]({f'https://www.youtube.com/results?search_query={quote(song['artist'] + ' ' + song['title'])}})"
-        )
+        youtube_url = f"https://www.youtube.com/results?search_query={quote(song['artist'] + ' ' + song['title'])}"
+        st.markdown(f"[🎵 YouTube Search]({youtube_url})")
     else:
         st.warning("No songs available. Try updating or changing filters.")
-
 st.caption("Data from Kworb + Apple Music API • Built with ❤️ for EDM producers using Streamlit")
 
