@@ -4,9 +4,10 @@ import random
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import quote
+import zipfile
 
 # --------------------------------------------------------
-# CONFIG
+# APP CONFIG
 # --------------------------------------------------------
 st.set_page_config(page_title="TikTok Remix Finder PRO", layout="wide")
 st.title("🎧 TikTok Remix Finder PRO — Find Trending Songs to Remix")
@@ -73,21 +74,36 @@ def fetch_kworb_tiktok_top(country="US", top_n=25):
         return pd.DataFrame()
 
 # --------------------------------------------------------
-# 4. MUSICO Dataset (sample)
+# 4. MUSICO Dataset Loader (from local ZIP)
 # --------------------------------------------------------
 @st.cache_data
-def load_musico_sample():
-    url = "https://zenodo.org/record/4277311/files/musico-sample.csv"
+def load_musico_local(zip_path="Artists songs and tracks cvs files.zip"):
+    """Load MUSICO dataset CSVs from local zip file."""
     try:
-        df = pd.read_csv(url)
-        df = df.rename(columns=str.lower)
-        df = df[["title", "artist", "genre", "bpm"]].dropna()
-        return df
+        dfs = []
+        with zipfile.ZipFile(zip_path, "r") as z:
+            for filename in z.namelist():
+                if filename.endswith(".csv"):
+                    with z.open(filename) as f:
+                        df_part = pd.read_csv(f, low_memory=False)
+                        df_part.columns = [c.lower() for c in df_part.columns]
+                        # Filter for relevant columns
+                        if "title" in df_part.columns and "artist" in df_part.columns:
+                            cols = [c for c in ["title", "artist", "genre", "bpm"] if c in df_part.columns]
+                            df_sub = df_part[cols].dropna(subset=["title", "artist"])
+                            dfs.append(df_sub)
+        if dfs:
+            df = pd.concat(dfs, ignore_index=True).drop_duplicates(subset=["title", "artist"])
+            st.success(f"✅ Loaded MUSICO dataset with {len(df):,} songs.")
+            return df
+        else:
+            st.warning("⚠️ No CSV files found in the ZIP archive.")
+            return pd.DataFrame()
     except Exception as e:
-        st.warning(f"⚠️ MUSICO dataset unavailable: {e}")
+        st.error(f"❌ Could not load MUSICO dataset: {e}")
         return pd.DataFrame()
 
-musico_df = load_musico_sample()
+musico_df = load_musico_local()
 
 # --------------------------------------------------------
 # Sidebar Controls
@@ -103,7 +119,7 @@ source = st.sidebar.radio("Data Source", [
 ])
 
 # --------------------------------------------------------
-# Data Fetching Logic
+# Data Fetching
 # --------------------------------------------------------
 if "df" not in st.session_state:
     if "TikTok" in source:
@@ -121,13 +137,13 @@ if "df" not in st.session_state:
         st.session_state.df = combined.drop_duplicates(subset=["title", "artist"])
 
 if st.sidebar.button("🔄 Refresh All Data"):
-    st.session_state.df = pd.DataFrame()  # clears cache
+    st.session_state.df = pd.DataFrame()
     st.experimental_rerun()
 
 df = st.session_state.df.copy()
 
 # --------------------------------------------------------
-# Merge with MUSICO Data (for real genres & BPM)
+# Merge with MUSICO Data (for genres + BPM)
 # --------------------------------------------------------
 if not df.empty and not musico_df.empty:
     df["title_lower"] = df["title"].str.lower()
@@ -139,7 +155,7 @@ if not df.empty and not musico_df.empty:
     df["bpm"] = df["bpm"].fillna("–")
 
 # --------------------------------------------------------
-# Add YouTube links & Remix Suggestions
+# Add YouTube Links & Remix Suggestions
 # --------------------------------------------------------
 df["YouTube Link"] = df.apply(
     lambda r: f"https://www.youtube.com/results?search_query={quote(r['artist'] + ' ' + r['title'])}", axis=1)
@@ -153,7 +169,7 @@ df["Remix suggestion"] = df.apply(lambda _: random.choice([
 ]), axis=1)
 
 # --------------------------------------------------------
-# Filters and Sorting
+# Keyword Filter
 # --------------------------------------------------------
 if keyword:
     df = df[df.apply(lambda r: keyword.lower() in (r["artist"] + r["title"]).lower(), axis=1)]
@@ -187,7 +203,7 @@ if selected_genre:
 tab1, tab2 = st.tabs(["🎧 Remix Finder", "📺 YouTube Links"])
 
 with tab1:
-    st.markdown("### 🔊 Trending Songs & Remix Ideas (with MUSICO Data)")
+    st.markdown("### 🔊 Trending Songs & Remix Ideas (with MUSICO data)")
     st.dataframe(df[["rank", "artist", "title", "genre", "bpm", "Remix suggestion", "source"]])
 
     st.markdown("### 🎲 Random Song to Remix")
@@ -207,4 +223,5 @@ with tab2:
         st.markdown(f"- [{r['artist']} — {r['title']}]({r['YouTube Link']})")
 
 st.caption("Data from Deezer • iTunes RSS • Kworb TikTok • MUSICO Dataset • Built with ❤️ using Streamlit")
+
 
