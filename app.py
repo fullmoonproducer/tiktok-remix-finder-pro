@@ -33,8 +33,32 @@ def fetch_kworb_tiktok_top(country_code="US", top_n=25):
             if len(cols) >= 3:
                 rank, artist, title = cols[:3]
                 songs.append({"rank": rank, "artist": artist, "title": title})
-    df = pd.DataFrame(songs)
-    return df
+    return pd.DataFrame(songs)
+
+
+# ----------------------------
+# Fetch Spotify Trending Songs
+# ----------------------------
+@st.cache_data(ttl=3600)
+def fetch_spotify_top50():
+    """Fetch top tracks from Spotify Charts (via Kworb proxy)"""
+    url = "https://kworb.net/spotify/country/global_weekly.html"
+    try:
+        r = requests.get(url, timeout=10)
+        r.raise_for_status()
+        soup = BeautifulSoup(r.text, "html.parser")
+        table = soup.find("table")
+        songs = []
+        if table:
+            for row in table.find_all("tr")[1:26]:
+                cols = [c.get_text(strip=True) for c in row.find_all("td")]
+                if len(cols) >= 3:
+                    rank, artist, title = cols[:3]
+                    songs.append({"rank": rank, "artist": artist, "title": title})
+        return pd.DataFrame(songs)
+    except Exception as e:
+        st.warning(f"⚠️ Could not fetch Spotify data ({e})")
+        return pd.DataFrame()
 
 
 # ----------------------------
@@ -60,6 +84,7 @@ def fetch_genre_from_itunes(artist, title):
 st.sidebar.header("Filters")
 region = st.sidebar.selectbox("Region", ["US", "UK", "DE", "FR", "Global"])
 keyword = st.sidebar.text_input("Search by artist or title", "")
+source = st.sidebar.radio("Data Source", ["TikTok", "Spotify (Top 50)"])
 
 # ----------------------------
 # Data Fetch + Update Button
@@ -69,7 +94,10 @@ if "df" not in st.session_state:
 
 if st.sidebar.button("🔄 Update Song List"):
     with st.spinner("Updating song list..."):
-        st.session_state.df = fetch_kworb_tiktok_top(region, 25)
+        if source == "Spotify (Top 50)":
+            st.session_state.df = fetch_spotify_top50()
+        else:
+            st.session_state.df = fetch_kworb_tiktok_top(region, 25)
         st.success("✅ Song list updated!")
 
 df = st.session_state.df.copy()
@@ -96,14 +124,19 @@ for i, (genre, bpm_range) in enumerate(genres.items()):
         st.info(f"🎵 Showing songs suited for **{genre}** ({bpm_range[0]}–{bpm_range[1]} BPM)")
 
 # ----------------------------
-# Fetch Real Genres
+# Fetch Real Genres + Remix Suggestions
 # ----------------------------
 if not df.empty:
-    with st.spinner("Fetching real genres..."):
+    with st.spinner("Fetching genres & remix ideas..."):
         df["genre"] = df.apply(lambda r: fetch_genre_from_itunes(r["artist"], r["title"]), axis=1)
-        # Randomized remix suggestion from your Quick Genres list
         df["Remix suggestion"] = df["genre"].apply(lambda _: random.choice(list(genres.keys())))
-    st.success("✅ Genres added & remix ideas randomized!")
+        df["YouTube Link"] = df.apply(
+            lambda r: f"https://www.youtube.com/results?search_query={quote(r['artist']+' '+r['title'])}", axis=1
+        )
+        df["Spotify Link"] = df.apply(
+            lambda r: f"https://open.spotify.com/search/{quote(r['artist']+' '+r['title'])}", axis=1
+        )
+    st.success("✅ Genres and remix suggestions added!")
 
 # Apply keyword filter
 if keyword:
@@ -117,27 +150,36 @@ if selected_genre:
     df = df.sort_values(by="is_match", ascending=False).drop(columns="is_match")
 
 # ----------------------------
-# Display Data
+# Create Tabs
 # ----------------------------
-st.markdown("### 🔊 Trending Songs & Remix Ideas")
-st.dataframe(df[["rank", "artist", "title", "genre", "Remix suggestion"]])
+tab1, tab2 = st.tabs(["🎧 Remix Finder", "📺 YouTube Links"])
 
-# ----------------------------
-# Random Song Picker
-# ----------------------------
-st.markdown("### 🎲 Random Song to Remix")
-if st.button("Give me a random remix idea"):
-    if len(df) > 0:
-        song = df.sample(1).iloc[0]
-        st.success(
-            f"🎧 **{song['title']}** — {song['artist']} ({song['genre']}) → Try remixing into **{song['Remix suggestion']}!**"
-        )
-        youtube_url = f"https://www.youtube.com/results?search_query={quote(song['artist'] + ' ' + song['title'])}"
-        st.markdown(f"[🎵 YouTube Search]({youtube_url})")
-    else:
-        st.warning("No songs available. Try updating or changing filters.")
+with tab1:
+    st.markdown("### 🔊 Trending Songs & Remix Ideas")
+    st.dataframe(df[["rank", "artist", "title", "genre", "Remix suggestion"]])
 
-st.caption("Data from Kworb + Apple Music API • Built with ❤️ for EDM producers using Streamlit")
+    st.markdown("### 🎲 Random Song to Remix")
+    if st.button("Give me a random remix idea"):
+        if len(df) > 0:
+            song = df.sample(1).iloc[0]
+            st.success(
+                f"🎧 **{song['title']}** — {song['artist']} ({song['genre']}) → Try remixing into **{song['Remix suggestion']}!**"
+            )
+            st.markdown(
+                f"[🎵 YouTube Search]({song['YouTube Link']}) | [🎧 Spotify]({song['Spotify Link']})"
+            )
+        else:
+            st.warning("No songs available. Try updating or changing filters.")
+
+with tab2:
+    st.markdown("### 📺 YouTube Search Links for All Songs")
+    for _, row in df.iterrows():
+        st.markdown(f"- [{row['artist']} – {row['title']}]({row['YouTube Link']})")
+
+st.caption(
+    "Data from TikTok (Kworb), Spotify, and Apple Music API • Built with ❤️ for EDM producers using Streamlit"
+)
+
 
 
 
