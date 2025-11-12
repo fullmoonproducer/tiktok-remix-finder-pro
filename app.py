@@ -55,28 +55,6 @@ def fetch_genre_from_itunes(artist, title):
 
 
 # ----------------------------
-# EDM Remix Target Mapping
-# ----------------------------
-def recommend_remix_target(original_genre):
-    mapping = {
-        "Pop": "House (120–128 BPM)",
-        "Hip-Hop": "Techno (125–135 BPM)",
-        "Rap": "Trap / Drill (130–150 BPM)",
-        "Rock": "Drum & Bass (160–180 BPM)",
-        "Country": "House (120–128 BPM)",
-        "Electronic": "Trance (130–140 BPM)",
-        "R&B": "House (120–128 BPM)",
-        "Latin": "Techno (125–135 BPM)",
-        "Dance": "House (120–128 BPM)",
-    }
-    for key, val in mapping.items():
-        if key.lower() in original_genre.lower():
-            return val
-    # Default fallback — pick a random EDM quick genre for variety
-    return random.choice(list(genres.keys())) if "genres" in globals() else "House (120–128 BPM)"
-
-
-# ----------------------------
 # Sidebar Filters
 # ----------------------------
 st.sidebar.header("Filters")
@@ -123,8 +101,9 @@ for i, (genre, bpm_range) in enumerate(genres.items()):
 if not df.empty:
     with st.spinner("Fetching real genres..."):
         df["genre"] = df.apply(lambda r: fetch_genre_from_itunes(r["artist"], r["title"]), axis=1)
-        df["Remix suggestion"] = df["genre"].apply(recommend_remix_target)
-    st.success("✅ Genres added!")
+        # Randomized remix suggestion from your Quick Genres list
+        df["Remix suggestion"] = df["genre"].apply(lambda _: random.choice(list(genres.keys())))
+    st.success("✅ Genres added & remix ideas randomized!")
 
 # Apply keyword filter
 if keyword:
@@ -159,6 +138,7 @@ if st.button("Give me a random remix idea"):
         st.warning("No songs available. Try updating or changing filters.")
 
 st.caption("Data from Kworb + Apple Music API • Built with ❤️ for EDM producers using Streamlit")
+
 
 
 
