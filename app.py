@@ -12,7 +12,7 @@ st.set_page_config(page_title="TikTok Remix Finder PRO", layout="wide")
 st.title("🎧 TikTok Remix Finder PRO — Find Trending Songs to Remix")
 
 # --------------------------------------------------------
-# Deezer Global Top 50 (Open, no token required)
+# Deezer Global Top 50 (no token required)
 # --------------------------------------------------------
 @st.cache_data(ttl=1800)
 def fetch_deezer_top_tracks(top_n=50):
@@ -36,7 +36,7 @@ def fetch_deezer_top_tracks(top_n=50):
         return pd.DataFrame()
 
 # --------------------------------------------------------
-# iTunes RSS Charts (Official, open, no auth)
+# iTunes RSS Charts (official, open, no auth)
 # --------------------------------------------------------
 @st.cache_data(ttl=1800)
 def fetch_itunes_top_songs(country="us", top_n=25):
@@ -82,23 +82,6 @@ def fetch_kworb_tiktok_top(country="US", top_n=25):
         return pd.DataFrame()
 
 # --------------------------------------------------------
-# iTunes Genre Lookup API
-# --------------------------------------------------------
-@st.cache_data(ttl=3600)
-def fetch_genre(artist, title):
-    """Get real genre name using iTunes Search API"""
-    try:
-        query = quote(f"{artist} {title}")
-        res = requests.get(f"https://itunes.apple.com/search?term={query}&limit=1", timeout=5)
-        res.raise_for_status()
-        data = res.json()
-        if data.get("results"):
-            return data["results"][0].get("primaryGenreName", "Unknown")
-    except Exception:
-        pass
-    return "Unknown"
-
-# --------------------------------------------------------
 # Sidebar Filters
 # --------------------------------------------------------
 st.sidebar.header("Filters")
@@ -134,29 +117,50 @@ if st.sidebar.button("🔄 Update Song List"):
 df = st.session_state.df.copy()
 
 # --------------------------------------------------------
-# Add Genres, YouTube Links & Remix Suggestions
+# Add YouTube Links & Random Remix Suggestions
 # --------------------------------------------------------
 if not df.empty:
-    with st.spinner("Fetching genres and remix ideas..."):
-        df["genre"] = df.apply(lambda r: fetch_genre(r["artist"], r["title"]), axis=1)
-        df["YouTube Link"] = df.apply(
-            lambda r: f"https://www.youtube.com/results?search_query={quote(r['artist'] + ' ' + r['title'])}",
-            axis=1,
-        )
-        df["Remix suggestion"] = df["genre"].apply(lambda g: random.choice([
+    df["YouTube Link"] = df.apply(
+        lambda r: f"https://www.youtube.com/results?search_query={quote(r['artist'] + ' ' + r['title'])}",
+        axis=1,
+    )
+    df["Remix suggestion"] = df.apply(
+        lambda _: random.choice([
             "House (120–128 BPM)",
             "Techno (125–135 BPM)",
             "Trap/Drill (130–150 BPM)",
             "Drum & Bass (160–180 BPM)",
             "Dubstep (138–142 BPM)",
             "Trance (130–140 BPM)"
-        ]))
+        ]),
+        axis=1,
+    )
 
 # --------------------------------------------------------
-# Apply keyword filter
+# Quick Genre Filter Buttons (EDM)
 # --------------------------------------------------------
+st.subheader("🎚️ Quick Genre Filters")
+genres = {
+    "House (120–128 BPM)": (120, 128),
+    "Techno (125–135 BPM)": (125, 135),
+    "Trap/Drill (130–150 BPM)": (130, 150),
+    "Drum & Bass (160–180 BPM)": (160, 180),
+    "Dubstep (138–142 BPM)": (138, 142),
+    "Trance (130–140 BPM)": (130, 140),
+}
+cols = st.columns(len(genres))
+selected_genre = None
+for i, (g, bpm) in enumerate(genres.items()):
+    if cols[i].button(g):
+        selected_genre = g
+        st.info(f"🎵 Showing songs suited for **{g}** ({bpm[0]}–{bpm[1]} BPM)")
+
 if keyword:
     df = df[df.apply(lambda r: keyword.lower() in (r["artist"] + r["title"]).lower(), axis=1)]
+
+if selected_genre:
+    df["match"] = df["Remix suggestion"].apply(lambda g: g == selected_genre)
+    df = df.sort_values(by="match", ascending=False).drop(columns="match")
 
 # --------------------------------------------------------
 # Tabs
@@ -164,28 +168,26 @@ if keyword:
 tab1, tab2 = st.tabs(["🎧 Remix Finder", "📺 YouTube Links"])
 
 with tab1:
-    st.markdown("### 🔊 Trending Songs & Real Genres")
-    display_cols = ["rank", "artist", "title", "genre", "Remix suggestion"]
-    if "deezer_link" in df.columns:
-        display_cols.append("deezer_link")
-    if "itunes_link" in df.columns:
-        display_cols.append("itunes_link")
+    st.markdown("### 🔊 Trending Songs & Remix Ideas")
+    display_cols = ["rank", "artist", "title", "Remix suggestion"]
     st.dataframe(df[display_cols])
 
     st.markdown("### 🎲 Random Song to Remix")
     if st.button("Give me a random remix idea"):
         if len(df) > 0:
             song = df.sample(1).iloc[0]
-            st.success(f"🎵 **{song['title']}** — {song['artist']} ({song['genre']}) → Try remixing into **{song['Remix suggestion']}!**")
+            st.success(
+                f"🎧 **{song['title']}** — {song['artist']} → Try remixing into **{song['Remix suggestion']}!**"
+            )
             st.markdown(
-                f"[🎧 Listen on YouTube]({song['YouTube Link']}) | [📀 Stream]({song.get('deezer_link', song.get('itunes_link', '#'))})"
+                f"[🎵 YouTube Search]({song['YouTube Link']})"
             )
         else:
-            st.warning("No songs available.")
+            st.warning("No songs available. Try updating or changing filters.")
 
 with tab2:
     st.markdown("### 📺 YouTube Search Links for All Songs")
     for _, r in df.iterrows():
         st.markdown(f"- [{r['artist']} — {r['title']}]({r['YouTube Link']})")
 
-st.caption("Data from Deezer Charts • iTunes RSS & Search • Kworb TikTok • Built with ❤️ using Streamlit")
+st.caption("Data from Deezer Charts • iTunes RSS • Kworb TikTok • Built with ❤️ using Streamlit")
